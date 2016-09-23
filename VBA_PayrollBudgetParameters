@@ -1,0 +1,92 @@
+Option Explicit
+Option Base 1
+
+Public Sub RunProc()
+    'NOTE: Change server name below
+    
+    On Error GoTo Err_mygetdata
+
+    Dim cn As New ADODB.Connection
+    Dim cmd As ADODB.Command
+    Dim ConnString As String
+    Dim Scenario As String
+    Dim qry As String
+    Dim qry2 As String
+    Dim qry3 As String
+    Dim FiscalYear As Integer
+    Dim TimePeriod As Integer
+    Dim rst As New Recordset
+    Dim rst2 As New Recordset
+    Dim rst3 As New Recordset
+           
+    
+    Scenario = Range("C7")
+    FiscalYear = Range("D7")
+    'TimePeriod = FiscalYear * 10000 + 101
+       
+    
+    'build SQL Statements
+    qry = "DECLARE @exist int IF EXISTS(SELECT Scenario,TimePeriod FROM f_Trans_HR WHERE Scenario in (SELECT MemberId FROM d_Scenario WHERE Code = '" & Scenario & "') and TimePeriod = " & FiscalYear & "*10000 +101) SET @exist = 1 ELSE SET @exist = 0 SELECT @exist;"
+    qry2 = "TRUNCATE TABLE z_PayrollBudgetLoadParameters; INSERT INTO z_PayrollBudgetLoadParameters SELECT CAST('" & Scenario & "' as nvarchar(50)) as Scenario, '" & FiscalYear & "' as FiscalYear,CAST(SUSER_NAME() as nvarchar(50)) as CreatedBy,GETDATE() as CreatedOn;"
+    qry3 = "DELETE FROM f_Trans_HR WHERE Scenario in (SELECT MemberId FROM d_Scenario WHERE Code = '" & Scenario & "') and TimePeriod = " & FiscalYear & "*10000 +101;"
+    
+    ConnString = "Provider=SQLOLEDB.1;Data Source=BI3SQLPRD01; Initial Catalog=BI360DW_PRD;Integrated Security=SSPI;"
+
+    Set cn = New Connection
+    Set cmd = New Command
+    
+    cn.ConnectionString = ConnString
+    
+    cn.Open ConnString
+    
+    rst.Open qry, cn
+    
+    Worksheets("Data Load").Range("Y7").CopyFromRecordset rst
+    
+    '--If the scenario and fiscal year are there then lauch the warning and delete the data.
+    If Range("Y7") = 1 Then
+        GoTo DataExistWarning
+    End If
+    
+    '--If the scenario and fiscal year are not there then pass the parameters to the SQL parameter table.
+    If Range("Y7") = 0 Then
+        rst2.Open qry2, cn
+    End If
+
+    Set cn = New Connection
+    Set cmd = New Command
+    
+    cn.ConnectionString = ConnString
+    
+    cn.Open ConnString
+
+    cmd.ActiveConnection = cn
+    cmd.CommandType = adCmdStoredProc
+    cmd.CommandText = "RunLoad"
+    cmd.Execute
+
+    Set cn = Nothing
+    Set cmd = Nothing
+       
+    MsgBox "Data load running. Please wait 10 minutes before running this process again.", vbOKOnly, " Data Load Process"
+    
+    Exit Sub
+    
+Err_mygetdata:
+    
+    MsgBox "Error: " & Err.Description & vbCrLf & vbCrLf & "Process failed, data has NOT been loaded!" & vbCrLf & vbCrLf & "Contact IT for resolution.", vbCritical, "Data Load Error"
+    Set cn = Nothing
+    Set cmd = Nothing
+    
+    Exit Sub
+    
+DataExistWarning:
+    MsgBox "Budget data with the Scenario '" & Scenario & "' and FiscalYear '" & FiscalYear & "' already exists in the HR module. Data will be deleted if the Cleanup is set to 'Yes' or you can delete the data manually. After cleanup, click the 'LoadPayrollBudgetData' button again to load the data.", vbOKOnly, "Warning: Budget Data Exists"
+    If Range("F7") = "Yes" Then
+            rst3.Open qry3, cn
+            MsgBox "Budget data with the Scenario '" & Scenario & "' and FiscalYear '" & FiscalYear & "' has been deleted. Click the 'LoadPayrollBudgetData' button again to load the data.", vbOKOnly, "Data Cleanup"
+    End If
+    Set cn = Nothing
+    Set cmd = Nothing
+
+End Sub
